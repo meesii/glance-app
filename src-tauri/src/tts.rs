@@ -25,13 +25,6 @@ fn default_speaker() -> String {
     DEFAULT_SPEAKER.to_string()
 }
 
-/// 生成随机 device_id（19 位数字字符串）
-fn random_device_id() -> String {
-    let mut rng = rand::thread_rng();
-    let id: u64 = rng.gen_range(1_000_000_000_000_000_000..9_999_999_999_999_999_999);
-    id.to_string()
-}
-
 /// 生成随机 WebSocket Key（16 字节 base64）
 fn random_ws_key() -> String {
     let mut buf = [0u8; 16];
@@ -44,15 +37,14 @@ fn build_ws_url(request: &TtsRequest) -> String {
     format!(
         "{}?speaker={}&format={}&mode=0&speech_rate={}&pitch={}&language=zh\
          &browser_language=zh-CN&device_platform=web&aid=586864&real_aid=586864\
-         &pkg_type=release_version&device_id={}&is_new_user=0&region=CN&sys_region=CN\
-         &use-olympus-account=1&samantha_web=1&version=1.36.0&version_code=20800\
-         &pc_version=1.36.0",
+         &pkg_type=release_version&is_new_user=0&region=CN&sys_region=CN\
+         &use-olympus-account=1&samantha_web=1&version=1.38.0&version_code=20800\
+         &pc_version=1.38.0",
         TTS_WS_BASE,
         request.speaker,
         DEFAULT_FORMAT,
         request.speech_rate,
         request.pitch,
-        random_device_id(),
     )
 }
 
@@ -67,34 +59,59 @@ pub async fn doubao_tts(request: &TtsRequest, cookie: &str) -> Result<String, St
     let req = tungstenite::http::Request::builder()
         .uri(&url)
         .header("Host", host)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36")
         .header("Connection", "Upgrade")
+        .header("Pragma", "no-cache")
+        .header("Cache-Control", "no-cache")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
         .header("Upgrade", "websocket")
+        .header("Origin", "chrome-extension://dbjibobgilijgolhjdcbdebjhejelffo")
         .header("Sec-WebSocket-Version", "13")
+        .header("Accept-Encoding", "gzip, deflate, br, zstd")
+        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
         .header("Sec-WebSocket-Key", &ws_key)
+        .header("Sec-WebSocket-Extensions", "permessage-deflate; client_max_window_bits")
         .header("Cookie", cookie)
         .body(())
         .map_err(|e| format!("构建请求失败：{}", e))?;
 
-    println!("[TTS] 连接 WebSocket：speaker={}", request.speaker);
+    let connect_result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        connect_async(req),
+    ).await;
 
-    let (ws_stream, _) = connect_async(req)
-        .await
-        .map_err(|e| format!("WebSocket 连接失败：{}", e))?;
+    let (ws_stream, _response) = match connect_result {
+        Ok(Ok((ws, resp))) => (ws, resp),
+        Ok(Err(e)) => {
+            return Err(format!("WebSocket 连接失败：{}", e));
+        }
+        Err(_) => {
+            return Err("WebSocket 连接超时（10秒）".to_string());
+        }
+    };
 
     let (mut writer, mut reader) = ws_stream.split();
 
-    // 等待 open_success 或第一条消息
+    /* 等待 open_success，同时检测服务端错误响应 */
     let mut got_open = false;
     while let Some(msg) = reader.next().await {
         let msg = msg.map_err(|e| format!("读取消息失败：{}", e))?;
         if let tungstenite::Message::Text(txt) = &msg {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(txt) {
-                if json.get("event").and_then(|v| v.as_str()) == Some("open_success") {
+                let event = json.get("event").and_then(|v| v.as_str()).unwrap_or("");
+                let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+                if event == "open_success" {
                     got_open = true;
                     break;
                 }
+                /* 服务端在握手阶段返回错误（如 block） */
+                if code != 0 {
+                    let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
+                    return Err(format!("TTS 服务拒绝：[{}] {}", code, message));
+                }
             }
+        }
+        if let tungstenite::Message::Close(_frame) = &msg {
+            return Err("WebSocket 被服务端关闭，可能是 Cookie 无效或请求被限制".to_string());
         }
     }
 
@@ -120,8 +137,6 @@ pub async fn doubao_tts(request: &TtsRequest, cookie: &str) -> Result<String, St
         .await
         .map_err(|e| format!("发送 finish 失败：{}", e))?;
 
-    println!("[TTS] 已发送文本（{}字符），等待音频数据…", request.text.len());
-
     // 收集音频数据
     let mut audio_buf: Vec<u8> = Vec::new();
     let mut finished = false;
@@ -141,9 +156,7 @@ pub async fn doubao_tts(request: &TtsRequest, cookie: &str) -> Result<String, St
                         "finish" => {
                             finished = true;
                         }
-                        "sentence_start" | "sentence_end" => {
-                            // 正常流程事件，忽略
-                        }
+                        "sentence_start" | "sentence_end" => {}
                         _ if code != 0 => {
                             let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
                             return Err(format!("TTS 错误 [{}]：{}", code, message));
@@ -152,7 +165,9 @@ pub async fn doubao_tts(request: &TtsRequest, cookie: &str) -> Result<String, St
                     }
                 }
             }
-            tungstenite::Message::Close(_) => break,
+            tungstenite::Message::Close(_) => {
+                break;
+            }
             _ => {}
         }
     }
@@ -160,8 +175,6 @@ pub async fn doubao_tts(request: &TtsRequest, cookie: &str) -> Result<String, St
     if audio_buf.is_empty() {
         return Err("未收到音频数据".to_string());
     }
-
-    println!("[TTS] 完成，音频大小：{} 字节", audio_buf.len());
 
     Ok(BASE64.encode(&audio_buf))
 }

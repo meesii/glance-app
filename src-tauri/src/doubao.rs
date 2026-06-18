@@ -144,8 +144,6 @@ pub async fn doubao_translate(
     let url = format!("{}?{}", DOUBAO_API_URL, DOUBAO_QUERY_PARAMS);
     let body = build_request_body(request, model);
 
-    println!("[豆包] 发起请求：text={}, model={:?}", request.text, model);
-
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .build()
@@ -171,7 +169,6 @@ pub async fn doubao_translate(
         })?;
 
     let status = response.status();
-    println!("[豆包] 响应：{}", status);
 
     if !status.is_success() {
         let err_body = response.text().await.unwrap_or_default();
@@ -186,7 +183,7 @@ pub async fn doubao_translate(
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     let mut stream_finished = false;
-    let mut line_count = 0u32;
+    let mut _line_count = 0u32;
 
     while let Some(chunk) = stream.next().await {
         if stream_finished { break; }
@@ -201,7 +198,7 @@ pub async fn doubao_translate(
             buffer = buffer[pos + 1..].to_string();
             if line.is_empty() { continue; }
 
-            line_count += 1;
+            _line_count += 1;
 
             let json_str = line.strip_prefix("data:").map(|d| d.trim()).unwrap_or(&line);
             if json_str.is_empty() || json_str == "[DONE]" {
@@ -249,8 +246,6 @@ pub async fn doubao_translate(
             }
         }
     }
-
-    println!("[豆包] 完成，{}行，{}字符", line_count, full_translation.len());
 
     if full_translation.is_empty() {
         eprintln!("[豆包] 警告：翻译结果为空！可能 Cookie 已失效或 API 格式变更");

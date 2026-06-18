@@ -37,7 +37,6 @@ pub async fn translate_text(
     let config = crate::config::load_config(&app);
     let cookie = config.doubao_cookie.unwrap_or_default();
 
-    println!("[翻译] text={}, {}->{}", request.text, request.source_lang, request.target_lang);
 
     if cookie.is_empty() {
         return Err("请先在设置中配置豆包 Cookie".to_string());
