@@ -5,8 +5,9 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { marked } from 'marked';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import LangSelector from './components/LangSelector.vue';
-import { tts_speak } from './shared/api.js';
+import { get_config, tts_speak } from './shared/api.js';
 import { use_translate } from './shared/composables.js';
+import message from './utils/message.js';
 
 const { loading, error_msg, translation, original, do_translate } = use_translate();
 
@@ -24,6 +25,9 @@ const tgt_lang = ref('zh');
 const pinned = ref(false);
 const text = ref('');
 const src_app = ref('');
+
+/** @type {import('vue').Ref<string>} 当前 TTS 提供商 */
+const tts_provider = ref('Doubao');
 
 /**
  * localStorage 键名，用于持久化 pin 状态
@@ -120,7 +124,8 @@ const speech = {
                 speech.cache.set(val, base64);
                 speech.fetching.value = false;
             }
-            const audio = new Audio(`data:audio/aac;base64,${base64}`);
+            const mime = tts_provider.value === 'Mimo' ? 'audio/wav' : 'audio/aac';
+            const audio = new Audio(`data:${mime};base64,${base64}`);
             speech.audio = audio;
             speech.playing.value = true;
             audio.onended = () => {
@@ -134,6 +139,7 @@ const speech = {
             await audio.play();
         } catch (err) {
             console.error('TTS 朗读失败：', err);
+            message.error(String(err));
             speech.fetching.value = false;
             speech.playing.value = false;
             speech.source.value = '';
@@ -290,6 +296,13 @@ onMounted(async () => {
         if (!focused) win.on_blur();
     });
     cleanup.push(unlisten_focus);
+
+    try {
+        const config = await get_config();
+        tts_provider.value = config.tts?.provider || 'Doubao';
+    } catch (_) {
+        /* 静默忽略 */
+    }
 });
 
 onUnmounted(() => {
@@ -400,5 +413,25 @@ onUnmounted(() => {
             <Button icon="pi pi-copy" label="复制" severity="secondary" text size="small" @click="clip.result" />
             <Button icon="pi pi-refresh" label="刷新" severity="secondary" text size="small" @click="trans.refresh" />
         </div>
+
+        <Toast
+            style="top: 16px"
+            position="top-center"
+            :dt="{
+                icon: { size: '16px' },
+                border: { radius: '16px' },
+                content: { padding: '12px 16px', gap: '6px' },
+                summary: { font: { weight: '500', size: '13px' } },
+                close: { button: { width: '14px', height: '14px' } },
+            }"
+            :pt="{
+                root: 'w-fit',
+                message: 'bg-white border-color-border-3 shadow-toast m-0 rounded-xl min-w-[120px] flex items-center justify-center',
+                messageContent: 'items-center gap-2',
+                messageIcon: 'h-4 w-4',
+                closeButton: 'm-0 right-0',
+                summary: 'text-c-primary text-12',
+            }"
+        />
     </div>
 </template>

@@ -4,8 +4,10 @@ mod selection;
 mod translate;
 mod doubao;
 mod tts;
+mod mimo_tts;
 mod config;
 mod mouse_hook;
+mod browser;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +22,7 @@ pub fn run() {
             shortcut::update_shortcuts_cmd,
             update_mouse_hook_cmd,
             tts_speak_cmd,
+            get_chrome_cookies_cmd,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;
@@ -45,13 +48,35 @@ fn update_mouse_hook_cmd(app: tauri::AppHandle, enabled: bool) {
     }
 }
 
-/// Tauri 命令：豆包 TTS 语音合成，返回 base64 编码的 AAC 音频
+/// Tauri 命令：获取 Chrome 中 doubao.com 的 Cookie
+#[tauri::command]
+async fn get_chrome_cookies_cmd(app: tauri::AppHandle) -> Result<String, String> {
+    browser::get_doubao_cookies(app).await
+}
+
+/// Tauri 命令：TTS 语音合成，根据配置自动选择提供商，返回 base64 音频
 #[tauri::command]
 async fn tts_speak_cmd(app: tauri::AppHandle, request: tts::TtsRequest) -> Result<String, String> {
     let config = config::load_config(&app);
-    let cookie = config.doubao_cookie.unwrap_or_default();
-    if cookie.is_empty() {
-        return Err("请先在设置中配置豆包 Cookie".to_string());
+    match config.tts.provider {
+        config::TtsProvider::Mimo => {
+            let api_key = config.tts.mimo_api_key
+                .filter(|k| !k.is_empty())
+                .ok_or_else(|| "请先在设置中配置 MiMo API Key".to_string())?;
+            let mimo_req = mimo_tts::MimoTtsRequest {
+                text: request.text,
+                voice: config.tts.mimo_voice,
+                model: config.tts.mimo_model,
+                voice_design: config.tts.mimo_voice_design,
+            };
+            mimo_tts::mimo_tts(&mimo_req, &api_key, &config.tts.mimo_base_url).await
+        }
+        config::TtsProvider::Doubao => {
+            let cookie = config.doubao_cookie.unwrap_or_default();
+            if cookie.is_empty() {
+                return Err("请先在设置中配置豆包 Cookie".to_string());
+            }
+            tts::doubao_tts(&request, &cookie).await
+        }
     }
-    tts::doubao_tts(&request, &cookie).await
 }

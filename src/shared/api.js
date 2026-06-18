@@ -84,6 +84,18 @@ export async function update_mouse_hook(enabled) {
 }
 
 /**
+ * 从 Chrome 获取 doubao.com 的 Cookie
+ * @returns {Promise<string>} Cookie 字符串
+ */
+export async function get_chrome_cookies() {
+    try {
+        return await invoke('get_chrome_cookies_cmd');
+    } catch (error) {
+        throw new Error(format_error(error));
+    }
+}
+
+/**
  * 调用豆包 TTS 语音合成
  * @param {string} text - 要朗读的文本
  * @param {Object} [options] - 可选参数
