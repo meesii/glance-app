@@ -2,7 +2,7 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 8
+  version: 9
   cacheKey: 10c0
 
 "@antfu/install-pkg@npm:^1.1.0":
@@ -838,7 +838,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tauri-apps/api@npm:^2, @tauri-apps/api@npm:^2.8.0":
+"@tauri-apps/api@npm:^2.8.0, @tauri-apps/api@npm:~2.10.0":
   version: 2.10.1
   resolution: "@tauri-apps/api@npm:2.10.1"
   checksum: 10c0/f3c0b2ba67a0b887440a7faa1e0589e847760ee30ec29b964f22573a46b817cb3af2199d6f5f7dfdda54d65b465ebaaa280454c610a5c53d808a0911fa15e45d
@@ -1532,7 +1532,7 @@ __metadata:
     "@primeuix/themes": "npm:^2.0.3"
     "@primevue/auto-import-resolver": "npm:^4.5.4"
     "@tailwindcss/vite": "npm:^4.1.18"
-    "@tauri-apps/api": "npm:^2"
+    "@tauri-apps/api": "npm:~2.10.0"
     "@tauri-apps/cli": "npm:^2"
     "@tauri-apps/plugin-clipboard-manager": "npm:^2.3.2"
     "@vitejs/plugin-vue": "npm:^5.2.1"
